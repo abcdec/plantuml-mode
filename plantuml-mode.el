@@ -226,6 +226,16 @@ default output type for new buffers."
                   (plantuml-output-type-opt) "-p"))
 
 
+(defvar *elapsed-time* 0.0)
+(defvar *elapsed-time-count* 0)
+
+(defun plantuml-start-watch ()
+  (setq *start-time* (current-time)))
+
+(defun plantuml-stop-watch ()
+  (setq *elapsed-time* (+ *elapsed-time* (float-time (time-subtract (current-time) *start-time*))))
+  (setq *elapsed-time-count* (+ *elapsed-time-count* 1)))
+
 (defvar plantuml-prelaunch-buffer "*PLANTUML Prelaunch*")
 
 (defun plantuml-launch-process ()
@@ -259,8 +269,10 @@ to choose where to display it:
     (let ((ps (plantuml-launch-process)))
       (process-send-string ps string)
       (process-send-eof ps)
+      (plantuml-start-watch)
       (set-process-sentinel ps
                             (lambda (_ps event)
+			      (plantuml-stop-watch)
                               (unless (equal event "finished\n")
                                 (error "PLANTUML Preview failed: %s" event))
 			      (with-current-buffer (process-buffer _ps)
@@ -350,8 +362,10 @@ Uses prefix (as PREFIX) to choose where to display it:
 	       (ps (plantuml-launch-process-file-output)))
 	  (process-send-string ps (buffer-string))
 	  (process-send-eof ps)
+	  (plantuml-start-watch)
 	  (set-process-sentinel ps
 				(lambda (_ps event)
+				  (plantuml-stop-watch)
 				  (unless (equal event "finished\n")
 				    (error "PLANTUML Preview failed: %s" event))
 				  (with-current-buffer (process-buffer _ps)
