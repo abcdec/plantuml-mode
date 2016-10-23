@@ -225,6 +225,21 @@ default output type for new buffers."
                   plantuml-jar-path
                   (plantuml-output-type-opt) "-p"))
 
+
+(defvar plantuml-prelaunch-buffer "*PLANTUML Prelaunch*")
+
+(defun plantuml-launch-process ()
+  (or (get-process "PLANTUML")
+      (let* ((imagep (and (display-images-p)
+			  (plantuml-is-image-output-p)))
+	     (process-connection-type nil)
+	     (buf (get-buffer-create plantuml-prelaunch-buffer))
+	     (coding-system-for-read (and imagep 'binary))
+	     (coding-system-for-write (and imagep 'binary))
+	     (ps (plantuml-start-process buf)))
+	(set-process-query-on-exit-flag ps nil)
+	ps)))
+
 (defun plantuml-preview-string (prefix string)
   "Preview diagram from PlantUML sources (as STRING), using prefix (as PREFIX)
 to choose where to display it:
@@ -234,7 +249,6 @@ to choose where to display it:
   (let ((b (get-buffer plantuml-preview-buffer)))
     (when b
       (kill-buffer b)))
-
   (let* ((imagep (and (display-images-p)
                       (plantuml-is-image-output-p)))
          (process-connection-type nil)
@@ -242,13 +256,17 @@ to choose where to display it:
          (coding-system-for-read (and imagep 'binary))
          (coding-system-for-write (and imagep 'binary)))
 
-    (let ((ps (plantuml-start-process buf)))
+    (let ((ps (plantuml-launch-process)))
       (process-send-string ps string)
       (process-send-eof ps)
       (set-process-sentinel ps
                             (lambda (_ps event)
                               (unless (equal event "finished\n")
                                 (error "PLANTUML Preview failed: %s" event))
+			      (with-current-buffer (process-buffer _ps)
+				(copy-to-buffer plantuml-preview-buffer (point-min) (point-max))
+				(kill-buffer)
+				(run-at-time "3 sec" nil 'plantuml-launch-process))
                               (cond
                                ((= prefix 16)
                                 (switch-to-buffer-other-frame plantuml-preview-buffer))
@@ -301,6 +319,23 @@ Uses prefix (as PREFIX) to choose where to display it:
   "t if necessary conditions for file output are satisfied"
   (and (plantuml-file-output-type) (stringp plantuml-file-output-path)))
 
+(defun plantuml-launch-process-file-output ()
+  (or (get-process "PLANTUML File Output")
+      (let* ((imagep (and (display-images-p)
+			  (plantuml-is-image-output-p)))
+	     (process-connection-type nil)
+	     (buffer (get-buffer-create plantuml-prelaunch-buffer))
+	     (coding-system-for-read (and imagep 'binary))
+	     (coding-system-for-write (and imagep 'binary))
+	     (ps (apply 'start-process
+			(append (list "PLANTUML File Output" buffer plantuml-java-command)
+				plantuml-java-args
+				(list plantuml-jar-path
+				      (concat "-t" (plantuml-file-output-type))
+				      "-p")))))
+	(set-process-query-on-exit-flag ps nil)
+	ps)))
+
 (defun plantuml-file-output ()
   "Write generated diagram into a file."
   (if (plantuml-file-output-p)
@@ -312,18 +347,17 @@ Uses prefix (as PREFIX) to choose where to display it:
 	       (buffer (get-buffer-create plantuml-file-output-buffer-name))
 	       (coding-system-for-read 'binary)
 	       (coding-system-for-write 'binary)
-	       (ps (apply 'start-process
-			  (append (list "PLANTUML File Output" buffer plantuml-java-command)
-				  plantuml-java-args
-				  (list plantuml-jar-path
-					(concat "-t" (plantuml-file-output-type))
-					"-p")))))
+	       (ps (plantuml-launch-process-file-output)))
 	  (process-send-string ps (buffer-string))
 	  (process-send-eof ps)
 	  (set-process-sentinel ps
 				(lambda (_ps event)
 				  (unless (equal event "finished\n")
 				    (error "PLANTUML Preview failed: %s" event))
+				  (with-current-buffer (process-buffer _ps)
+				    (copy-to-buffer plantuml-file-output-buffer-name (point-min) (point-max))
+				    (kill-buffer)
+				    (run-at-time "3 sec" nil 'plantuml-launch-process-file-output))
 				  (save-excursion
 				    (with-current-buffer plantuml-file-output-buffer-name
 				      (write-region (point-min) (point-max)
